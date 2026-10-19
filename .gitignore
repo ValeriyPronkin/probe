@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.db
+# Live sessions hold other people's words. Cassettes recorded from them stay local
+# until the person has agreed to the transcript being committed.
+fixtures/transcripts/*.json
+fixtures/transcripts/cassettes/
+!fixtures/transcripts/.gitkeep
+.DS_Store

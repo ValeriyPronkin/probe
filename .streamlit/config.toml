@@ -1,0 +1,15 @@
+# Settings for the demo surface (scripts/app.py). Streamlit reads this file when
+# started from the project root.
+
+[client]
+# Viewer mode: no "Deploy" button and no developer menu in front of an audience.
+toolbarMode = "viewer"
+
+[logger]
+# Also withholds Streamlit's "install agent skills" popup, which it shows when it
+# detects an AI coding agent on the machine. The browser still opens by itself.
+hideWelcomeMessage = true
+
+[browser]
+# The demo runs offline and must not try to phone home.
+gatherUsageStats = false

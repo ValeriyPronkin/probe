@@ -1,0 +1,32 @@
+[project]
+name = "probe"
+version = "0.1.0"
+description = "A research instrument for measuring critical thinking in human-AI dialogue"
+requires-python = ">=3.13"
+dependencies = [
+  "pydantic>=2.9",
+  "openai>=1.58",
+]
+
+[project.optional-dependencies]
+# An extra, not a dev group: the web surface is an optional feature of the
+# instrument, installed deliberately rather than by everyone who runs the tests.
+web = [
+    "fastapi>=0.115",
+    "streamlit>=1.65.0",
+    "uvicorn>=0.32",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["probe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

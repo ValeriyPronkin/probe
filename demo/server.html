@@ -1,0 +1,215 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сервер для probe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Literata:opsz,wght@7..72,500;7..72,650&display=swap">
+<style>
+/* Layout: a single reading column like a lab protocol; the diagram and tables break out wider. */
+:root {
+  --bg: #f6f7f5;
+  --surface: #ffffff;
+  --fg: #1d2420;
+  --muted: #5b665f;
+  --rule: #d9ded9;
+  --accent: #2f6b4f;
+  --accent-soft: #e3efe8;
+  --warn: #9a5b12;
+  --warn-soft: #f7ecdc;
+  --code-bg: #eef1ee;
+  --display: "Literata", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131815; --surface: #1a201c; --fg: #e3e8e4; --muted: #9aa69e; --rule: #2e3832;
+    --accent: #7cc39f; --accent-soft: #1f3329; --warn: #e2a85c; --warn-soft: #3a2c1a; --code-bg: #212823;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131815; --surface: #1a201c; --fg: #e3e8e4; --muted: #9aa69e; --rule: #2e3832;
+  --accent: #7cc39f; --accent-soft: #1f3329; --warn: #e2a85c; --warn-soft: #3a2c1a; --code-bg: #212823;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--body); padding-inline: 16px; padding-block: 32px 64px; }
+.wrap { max-width: 880px; margin: 0 auto; display: grid; gap: 48px; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 650; }
+h2 { font-size: 1.5rem; font-weight: 650; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+h3 { font-size: 1.1rem; font-weight: 650; font-family: var(--body); }
+section { display: grid; gap: 16px; min-width: 0; }
+p { margin: 0; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+.eyebrow { font: 500 .75rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+code, pre { font-family: var(--mono); font-size: .86em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre.cmd { background: var(--code-bg); padding: 12px 14px; border-radius: 6px; overflow-x: auto; margin: 0; line-height: 1.5; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diagram { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; overflow-x: auto; }
+.diagram svg { display: block; margin: 0 auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: .85rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--sw); border: 1px solid var(--rule); }
+ol.steps { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; }
+.timeline { display: grid; gap: 0; border-left: 2px solid var(--rule); margin-left: 6px; }
+.beat { position: relative; padding: 4px 0 22px 22px; display: grid; gap: 8px; min-width: 0; }
+.beat::before { content: ""; position: absolute; left: -7px; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.beat .t { font: 500 .8rem/1 var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.say { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; font-style: italic; }
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; border-radius: 0 6px 6px 0; }
+details { border-bottom: 1px solid var(--rule); padding: 10px 0; }
+summary { cursor: pointer; font-weight: 600; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details > div { padding-top: 8px; color: var(--fg); }
+ul.tight { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.svgtext { fill: var(--fg); font-family: var(--body); }
+.svgmuted { fill: var(--muted); font-family: var(--mono); }
+.tag{display:inline-block;font:500 .72rem/1.4 var(--mono);letter-spacing:.04em;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:16px;display:grid;gap:8px;align-content:start;min-width:0}
+.card h3{margin:0}
+.big{font:600 1.35rem/1.2 var(--display);font-variant-numeric:tabular-nums}
+.small{font-size:.85rem;color:var(--muted)}
+</style>
+
+<div class="wrap">
+
+<header class="prose" style="display:grid;gap:12px">
+  <div class="eyebrow">probe · инфраструктура · черновик, октябрь 2026</div>
+  <h1>Сервер для локальных моделей</h1>
+  <p class="lede">Конфигурация под минимум из двух видеокарт по 24 ГБ: наблюдатель на одной, судья другого семейства — на второй. Данные участников не покидают машину.</p>
+</header>
+
+<section>
+  <h2>Почему именно две карты по 24 ГБ</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Карта</th><th>Роль</th><th>Модель (класс)</th><th>Занято памяти</th></tr></thead>
+    <tbody>
+      <tr><td>GPU 1</td><td>Наблюдатель</td><td>Qwen3-32B или русскоязычное дообучение на его основе, сжатие Q4</td><td class="num">≈ 20 ГБ + 2–3 ГБ контекст</td></tr>
+      <tr><td>GPU 2</td><td>Судья</td><td>Gemma 3 27B или Mistral Small 24B, сжатие Q4</td><td class="num">≈ 15–17 ГБ + контекст</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <ul class="tight prose">
+    <li>Модели разных семейств, как требует принцип прибора, и обе загружены одновременно. Сессия размечается и проверяется без перезагрузки моделей.</li>
+    <li>Промпт наблюдателя большой: в нём весь инвентарь из 21 индикатора, около 6–8 тыс. токенов. Поэтому запас памяти под контекст обязателен. 24 ГБ — нижняя граница для 32B-модели.</li>
+    <li>Если понадобится модель крупнее, 70B в Q4 (≈ 40 ГБ) помещается на обе карты сразу. Тогда наблюдатель и судья работают по очереди. Это путь роста без замены железа.</li>
+  </ul>
+  <div class="note prose">Названия моделей ориентировочные: мои сведения о моделях заканчиваются серединой 2026 года. Окончательный выбор — по замеру на персонах прибора, как обсуждали.</div>
+</section>
+
+<section>
+  <h2>Выбор видеокарт</h2>
+  <p class="prose">Наша нагрузка — один запрос за раз, и скорость ответа определяется пропускной способностью видеопамяти, а не вычислительной мощностью. По этому параметру RTX 3090 уступает 4090 меньше 10%, а стоит в разы дешевле.</p>
+  <div class="grid2">
+    <div class="card">
+      <span class="tag">рекомендую как минимум</span>
+      <h3>2 × RTX 3090 24 ГБ, б/у</h3>
+      <div class="big">≈ 100–180 тыс. ₽</div>
+      <p class="small">за пару, по объявлениям 2025 года: 50–90 тыс. ₽ за карту</p>
+      <ul class="tight small">
+        <li>Память 936 ГБ/с, 350 Вт</li>
+        <li>Лучше двухслотовые «турбо»-версии с выдувом назад: две карты встают вплотную и не греют друг друга</li>
+        <li>Риск: б/у, часто после майнинга, без гарантии. Нужна проверка под нагрузкой при покупке</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="tag warn">если нужна гарантия и запас</span>
+      <h3>2 × RTX 4090 24 ГБ, новые</h3>
+      <div class="big">≈ 670–715 тыс. ₽</div>
+      <p class="small">335–357 тыс. ₽ за карту, часть предложений под заказ 40–60 дней</p>
+      <ul class="tight small">
+        <li>Память 1008 ГБ/с, 450 Вт</li>
+        <li>Генерация текста примерно на 10% быстрее, чтение длинного промпта — примерно вдвое</li>
+        <li>Карты толщиной 3–3,5 слота: нужна плата с большим шагом между слотами или райзер</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="tag warn">профессиональный вариант</span>
+      <h3>2 × RTX 4500 Ada / RTX PRO 4000 Blackwell</h3>
+      <div class="big">≈ $4 300–6 600</div>
+      <p class="small">$2 100–3 300 за карту по зарубежным ценам 2026 года, в России дороже</p>
+      <ul class="tight small">
+        <li>Двухслотовые, 130–210 Вт, тихие, рассчитаны на круглосуточную работу</li>
+        <li>Но память медленнее (≈ 430–670 ГБ/с), значит ответы медленнее, чем у 3090</li>
+        <li>Имеет смысл, только если сервер стоит рядом с людьми или в стойке</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Полная конфигурация</h2>
+  <p class="prose">Основной вариант собран под 2 × RTX 3090. Отличия для 4090 указаны в скобках.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Компонент</th><th>Что выбрать</th><th>Почему</th></tr></thead>
+    <tbody>
+      <tr><td>Видеокарты</td><td>2 × RTX 3090 24 ГБ, желательно турбо-версии</td><td>См. выше</td></tr>
+      <tr><td>Процессор</td><td>AMD Ryzen 9 7900 (12 ядер, 65 Вт) или Ryzen 7 9700X</td><td>Процессор почти не участвует в работе моделей, мощный не нужен. Важна холодная работа рядом с двумя горячими картами</td></tr>
+      <tr><td>Материнская плата</td><td>AM5 с двумя слотами PCIe x16, работающими как x8 + x8, и широким шагом между ними. Например, ASUS ProArt X870E-Creator</td><td>Обе карты должны получить свои линии и поместиться физически. Шаг слотов проверить по схеме платы под конкретные карты</td></tr>
+      <tr><td>Оперативная память</td><td>128 ГБ DDR5 (2 × 64 ГБ), минимум 64 ГБ</td><td>Модели загружаются через ОЗУ, держатся в кэше для быстрой перезагрузки, есть запас под выгрузку части модели</td></tr>
+      <tr><td>Накопитель 1</td><td>NVMe PCIe 4.0, 2 ТБ (Samsung 990 Pro, WD SN850X)</td><td>Система и модели: каждая модель 15–40 ГБ, хранить придётся несколько версий</td></tr>
+      <tr><td>Накопитель 2</td><td>NVMe или SSD 2–4 ТБ</td><td>Данные сессий, база, кассеты. Отдельно от системы, с шифрованием</td></tr>
+      <tr><td>Блок питания</td><td>1300 Вт 80+ Platinum, ATX 3.1 (для 4090 — 1600 Вт с двумя разъёмами 12V-2×6)</td><td>У карт кратковременные пики потребления. Дополнительно ограничиваем карты до 280 Вт (4090 — до 320 Вт): потеря скорости почти незаметна, нагрев заметно меньше</td></tr>
+      <tr><td>Корпус</td><td>Полноразмерный, 8 слотов расширения, сетчатая передняя панель: Fractal Meshify 2 XL, Phanteks Enthoo Pro 2. Для стойки — 4U</td><td>Две карты и поток воздуха через них — главная инженерная задача сборки</td></tr>
+      <tr><td>Охлаждение процессора</td><td>Башенный воздушный кулер (Noctua NH-D15 или аналог)</td><td>Надёжнее жидкостного для круглосуточной работы</td></tr>
+      <tr><td>ИБП</td><td>1500–2000 ВА, линейно-интерактивный или онлайн</td><td>Защита от обрыва питания посреди сессии участника и от порчи базы</td></tr>
+      <tr><td>Сеть</td><td>Встроенные 2,5 Гбит/с достаточно</td><td>Трафик — только текст</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="prose small">Ориентир по сумме: видеокарты — по ценам выше. Остальное я по текущим российским ценам не проверял; точную смету лучше запросить у сборщика по этой спецификации.</p>
+</section>
+
+<section>
+  <h2>Программное окружение</h2>
+  <ul class="tight prose">
+    <li><strong>ОС:</strong> Ubuntu Server 24.04 LTS, драйвер NVIDIA и CUDA.</li>
+    <li><strong>Запуск моделей:</strong> Ollama на старте, каждая модель закреплена за своей картой. При росте нагрузки — llama.cpp server или vLLM. Все они дают интерфейс как у OpenAI, и для прибора это просто ещё один провайдер на десяток строк кода.</li>
+    <li><strong>Изоляция:</strong> Docker с NVIDIA Container Toolkit.</li>
+    <li><strong>Доступ:</strong> SSH через WireGuard или Tailscale, без открытых портов наружу.</li>
+    <li><strong>Данные участников:</strong> шифрование диска (LUKS) и резервная копия на другой носитель вне сервера.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Что это даёт прибору</h2>
+  <div class="grid2">
+    <div class="card"><h3>Воспроизводимость</h3><p class="small">Облачная модель дала разную разметку на одинаковых запросах, а за алиасом сменила версию. Локальные веса не меняются. Каждая сессия записывает хэш файла модели и версию Ollama, и по ним балл можно пересчитать через год.</p></div>
+    <div class="card"><h3>Приватность</h3><p class="small">Транскрипты реальных людей не уходят третьим лицам. Это проще и с согласием участников, и с 152-ФЗ.</p></div>
+    <div class="card"><h3>Независимый судья</h3><p class="small">Наблюдатель и судья из разных семейств без внешних ключей и оплаты за запрос.</p></div>
+    <div class="card"><h3>Скорость</h3><p class="small">Ориентир для 32B на 3090: 25–35 токенов в секунду, 15–30 секунд на ход. Сессия из 7–15 ходов размечается за несколько минут, и наблюдатель с судьёй работают параллельно на своих картах.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Открытые вопросы</h2>
+  <ul class="tight prose">
+    <li>Где будет стоять сервер: в офисе рядом с людьми (тогда важен шум) или в серверной.</li>
+    <li>Нужен ли собеседник для участника в реальном времени на этом же сервере. Он делит карту с наблюдателем, но разметка идёт после сессии, так что конфликта нагрузки нет.</li>
+    <li>Сколько параллельных сессий ожидается. Одновременные участники — повод для третьей карты или vLLM.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Источники цен</h2>
+  <ul class="tight prose small">
+    <li><a href="https://serverflow.ru/catalog/komplektuyushchie/videokarty/servernaya-videokarta-nvidia-rtx-4090-24gb/">serverflow.ru — RTX 4090 FE, 335 400 ₽, под заказ</a></li>
+    <li><a href="https://torg-pc.ru/catalog/rtx-4090-4090-ti/videokarta-geforce-rtx-4090-24-gb-gddr6x-384-bit-pci-express-gen-4-850w/">torg-pc.ru — RTX 4090, 357 000 ₽</a></li>
+    <li><a href="https://gpudojo.com/rtx-4090">gpudojo — мировые цены RTX 4090, октябрь 2026</a></li>
+    <li><a href="https://www.farpost.ru/tech/computers/components/video/+/GeForce+RTX+3090/">farpost.ru — объявления RTX 3090 (2025)</a></li>
+    <li><a href="https://gpuprix.com/us/gpus/rtx-4500-ada-generation">gpuprix — RTX 4500 Ada, октябрь 2026</a></li>
+    <li><a href="https://www.videocardbenchmark.net/gpu.php?gpu=RTX+PRO+4000+Blackwell&id=7095">PassMark — RTX PRO 4000 Blackwell</a></li>
+  </ul>
+</section>
+
+</div>
+</html>

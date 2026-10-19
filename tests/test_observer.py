@@ -7,7 +7,14 @@ import pytest
 
 from probe.config import Config, replay_only
 from probe.inventory.render import render_inventory, valid_indicator_ids
-from probe.llm import CassetteMissing, Request, cassette_path, complete_json
+from probe.llm import (
+    CassetteMissing,
+    IncompleteLabelling,
+    Request,
+    cassette_path,
+    check_finished,
+    complete_json,
+)
 from probe.models import OBSERVER
 from probe.observe import observer as observer_module
 from probe.observe.observer import Telemetry, build_prompt, observe_turn
@@ -159,3 +166,32 @@ def test_the_same_model_behind_another_provider_is_another_cassette():
         schema={"type": "object"},
     )
     assert request().key() != moved.key()
+
+
+@pytest.mark.parametrize(
+    "finish_reason, content",
+    [("length", '{"observations": [{"indicator_id": "kn.ga'), ("blacklist", "Не люблю менять тему"),
+     ("stop", "Вот разметка: ...")],
+)
+def test_an_unfinished_answer_is_an_error_not_an_empty_one(finish_reason, content):
+    with pytest.raises(IncompleteLabelling):
+        check_finished("observer", finish_reason, content)
+
+
+def test_a_finished_answer_parses():
+    assert check_finished("observer", "stop", '{"observations": []}') == {"observations": []}
+
+
+def test_a_failed_turn_leaves_no_session_behind(monkeypatch):
+    """Stored complete or not at all: no score built on part of the evidence."""
+    from probe.run import run_transcript
+    from probe.store import repo
+
+    def fail(*args, **kwargs):
+        raise IncompleteLabelling("observer: cut off")
+
+    monkeypatch.setattr("probe.run.observe_turn", fail)
+    with repo.connect() as connection:
+        with pytest.raises(IncompleteLabelling):
+            run_transcript(transcript(), replay_only(), connection)
+        assert connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0

@@ -31,6 +31,45 @@ class CassetteMissing(RuntimeError):
     """Replay mode was asked for a response that was never recorded."""
 
 
+class IncompleteLabelling(RuntimeError):
+    """A call came back without a usable answer: cut off at the token limit,
+    replaced by a content-filter refusal, or not JSON. It is raised, never
+    papered over, so the session it belongs to gets no score at all rather than
+    a score that silently lacks one turn's evidence."""
+
+
+UNFINISHED = {
+    "length": "ответ обрезан по лимиту токенов",
+    "blacklist": "ответ заменён отказом фильтра провайдера",
+    "content_filter": "ответ заменён отказом фильтра провайдера",
+}
+
+
+def check_finished(name: str, finish_reason: str | None, content: str) -> dict[str, Any]:
+    """Parse an answer only if the model actually finished it."""
+    if finish_reason in UNFINISHED:
+        raise IncompleteLabelling(
+            f"{name}: {UNFINISHED[finish_reason]} (finish_reason={finish_reason}): {content[:200]}"
+        )
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        # Structured output was requested; malformed JSON is a provider problem
+        # worth surfacing, not something to repair by guessing.
+        raise IncompleteLabelling(f"{name} returned non-JSON: {content[:200]}") from exc
+
+
+def served_models(provider: str, directory: Path = CASSETTE_DIR) -> list[str]:
+    """Every model version that answered for this provider. A wave scored by more
+    than one is not one measurement: the provider changed the model mid-wave."""
+    served = set()
+    for path in directory.glob("*.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("provider") == provider:
+            served.add(data.get("served_model", "?"))
+    return sorted(served)
+
+
 @dataclass(frozen=True)
 class Request:
     role: ModelRole
@@ -154,13 +193,13 @@ def _call_provider(request: Request, config: Config) -> tuple[dict[str, Any], st
         content = completion.choices[0].message.content or ""
         if content.strip():
             break
-    try:
-        return json.loads(content), completion.model, system
-    except json.JSONDecodeError as exc:
-        # Structured output was requested; malformed JSON is a provider problem
-        # worth surfacing, not something to repair by guessing.
-        raise RuntimeError(f"{request.role.name} returned non-JSON: {content[:200]}") from exc
+    answer = check_finished(request.role.name, completion.choices[0].finish_reason, content)
+    return answer, completion.model, system
 
+
+GIGACHAT_MAX_TOKENS = 4096
+"""Set explicitly so the limit is the instrument's, not the provider default's.
+The longest recorded observer answer is about 1300 characters, a few hundred tokens."""
 
 GIGACHAT_TIMEOUT = 300
 """Seconds. A single observer turn took about two minutes on 2026-10-19."""
@@ -185,6 +224,11 @@ def _call_gigachat(request: Request, config: Config) -> tuple[dict[str, Any], st
     chat = Chat(
         model=request.role.model,
         temperature=request.role.temperature,
+        max_tokens=GIGACHAT_MAX_TOKENS,
+        # The filter answers a "sensitive" turn with a canned refusal, so a
+        # participant who swore would lose that turn's labelling. Off, and any
+        # refusal that still comes back is caught by check_finished.
+        profanity_check=False,
         messages=[
             Messages(role=MessagesRole.SYSTEM, content=system),
             Messages(role=MessagesRole.USER, content=request.user),
@@ -208,7 +252,5 @@ def _call_gigachat(request: Request, config: Config) -> tuple[dict[str, Any], st
             content = completion.choices[0].message.content or ""
             if content.strip():
                 break
-    try:
-        return json.loads(content), completion.model, system
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"{request.role.name} returned non-JSON: {content[:200]}") from exc
+    answer = check_finished(request.role.name, completion.choices[0].finish_reason, content)
+    return answer, completion.model, system

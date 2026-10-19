@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import json
 import sys
 import time
 from pathlib import Path
@@ -29,9 +28,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from probe import config as config_module  # noqa: E402
-from probe.config import CASSETTE_DIR, replay_only  # noqa: E402
+from probe.config import replay_only  # noqa: E402
 from probe.inventory.render import valid_indicator_ids  # noqa: E402
-from probe.llm import CassetteMissing  # noqa: E402
+from probe.llm import CassetteMissing, served_models  # noqa: E402
 from probe.models import OBSERVERS  # noqa: E402
 from probe.run import Run, run_transcript  # noqa: E402
 from probe.store import repo  # noqa: E402
@@ -91,15 +90,6 @@ def kappa(a: Labels, b: Labels, units: list[tuple[str, int, str]]) -> float | No
     pa, pb = sum(u in a for u in units) / n, sum(u in b for u in units) / n
     expected = pa * pb + (1 - pa) * (1 - pb)
     return None if expected == 1 else (observed - expected) / (1 - expected)
-
-
-def served_versions(provider: str) -> list[str]:
-    served = set()
-    for path in CASSETTE_DIR.glob("observer-*.json"):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("provider") == provider:
-            served.add(data.get("served_model", "?"))
-    return sorted(served)
 
 
 def main() -> int:
@@ -172,7 +162,10 @@ def main() -> int:
         cells = ["—" if k is None else f"{k:.2f}" for k in ks]
         print(f"| `{ind}` | " + " | ".join(cells) + " | " + " | ".join(map(str, yes)) + " |")
     print()
-    print(f"gigachat, версии модели в ответах: {', '.join(served_versions('gigachat')) or '—'}")
+    versions = served_models("gigachat")
+    print(f"gigachat, версии модели в ответах: {', '.join(versions) or '—'}")
+    if len(versions) > 1:
+        print("ВНИМАНИЕ: волну размечали разные версии модели — это не одно измерение.")
     return 0
 
 

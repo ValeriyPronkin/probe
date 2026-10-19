@@ -79,6 +79,25 @@ def run_transcript(
 
     role = observer_role or OBSERVER
 
+    # Every turn is labelled and reviewed before anything is stored. A provider
+    # failure on any turn (IncompleteLabelling, an exhausted retry) propagates
+    # from here, so a session is stored complete or not at all: no participant
+    # gets a score that silently lacks one turn's evidence.
+    telemetry = Telemetry()
+    gold = _gold_observations(transcript) if observer == "gold" else {}
+
+    reviewed: list[Reviewed] = []
+    for turn in transcript.participant_turns():
+        if observer == "model":
+            raw = observe_turn(transcript, turn.idx, config, telemetry, role)
+        else:
+            raw = gold.get(turn.idx, [])
+        if not raw:
+            continue
+        reviewed.extend(
+            review_turn(transcript, turn.idx, raw, config, adjudicator=adjudicator)
+        )
+
     repo.create_session(
         connection,
         repo.SessionMeta(
@@ -95,21 +114,6 @@ def run_transcript(
         repo.append_turn(connection, session_id, turn.idx, turn.role, turn.content)
     for task_id, turn_idx in transcript.surfaced.items():
         repo.record_surfaced(connection, session_id, task_id, turn_idx)
-
-    telemetry = Telemetry()
-    gold = _gold_observations(transcript) if observer == "gold" else {}
-
-    reviewed: list[Reviewed] = []
-    for turn in transcript.participant_turns():
-        if observer == "model":
-            raw = observe_turn(transcript, turn.idx, config, telemetry, role)
-        else:
-            raw = gold.get(turn.idx, [])
-        if not raw:
-            continue
-        reviewed.extend(
-            review_turn(transcript, turn.idx, raw, config, adjudicator=adjudicator)
-        )
 
     for item in reviewed:
         repo.record_observation(

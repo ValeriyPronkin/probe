@@ -31,12 +31,23 @@ class Config:
     """In live mode, write every provider response to a cassette for later replay."""
     openrouter_api_key: str = ""
     deepseek_api_key: str = ""
+    gigachat_credentials: str = ""
+    """The Authorization key from Studio (base64 of client_id:client_secret), not
+    the 30-minute access token: the SDK exchanges one for the other itself."""
+    gigachat_ca_bundle: str = ""
+    """GigaChat's TLS chain ends at the Russian Trusted Root CA, which macOS does
+    not ship. Verification stays on; this points it at that root."""
     cassette_dir: Path = CASSETTE_DIR
+    reuse_recorded: bool = False
+    """In live mode, answer from an existing cassette instead of calling again.
+    Same key means the same request, so this only lets a long recording resume
+    after a provider error; it is off for live sessions with a person."""
 
     def require_key(self, provider: str) -> str:
         key, variable = {
             "openrouter": (self.openrouter_api_key, "OPENROUTER_API_KEY"),
             "deepseek": (self.deepseek_api_key, "DEEPSEEK_API_KEY"),
+            "gigachat": (self.gigachat_credentials, "GIGACHAT_CREDENTIALS"),
         }[provider]
         if not key:
             raise RuntimeError(
@@ -70,6 +81,11 @@ def load(env_file: Path | None = None) -> Config:
         record=os.environ.get("PROBE_RECORD", "") == "1",
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY", ""),
         deepseek_api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+        gigachat_credentials=os.environ.get("GIGACHAT_CREDENTIALS", ""),
+        gigachat_ca_bundle=os.environ.get(
+            "GIGACHAT_CA_BUNDLE",
+            str(Path.home() / ".certs" / "russian_trusted_root_ca.pem"),
+        ),
     )
 
 

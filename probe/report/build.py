@@ -193,7 +193,8 @@ def render_text(report: Report) -> str:
         )
         out.append(
             f"  отброшено по неизвестному id: {t.dropped_unknown_indicator} "
-            f"({t.drop_rate:.0%})   по неизвестному заданию: {t.dropped_unknown_task}"
+            f"({t.drop_rate:.0%})   по неизвестному заданию: {t.dropped_unknown_task}   "
+            f"с нарушением схемы: {t.dropped_malformed}   ответов без обёртки: {t.envelope_broken}"
         )
         if t.unknown_ids:
             out.append(f"  выдуманные id: {', '.join(sorted(set(t.unknown_ids)))}")

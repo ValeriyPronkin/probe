@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from pydantic import ValidationError
+
 from probe.config import Config
 from probe.inventory.render import render_inventory, valid_indicator_ids
 from probe.llm import Request, complete_json
-from probe.models import OBSERVER
-from probe.observe.schema import ObserverOutput, RawObservation, observer_json_schema
+from probe.models import OBSERVER, ModelRole
+from probe.observe.schema import RawObservation, observer_json_schema
 from probe.scenario.tasks import TASKS_BY_ID
 from probe.transcript import Transcript
 
@@ -40,6 +42,12 @@ class Telemetry:
     emitted: int = 0
     dropped_unknown_indicator: int = 0
     dropped_unknown_task: int = 0
+    dropped_malformed: int = 0
+    """Observations that broke the output contract (e.g. strength "medium"). Same
+    policy as an invented id: dropped and counted, never coerced into a valid one."""
+    envelope_broken: int = 0
+    """Replies that were a bare list instead of {"observations": [...]}. The list
+    is unambiguous, so it is read as the observations; the break is counted."""
     unknown_ids: list[str] = field(default_factory=list)
 
     @property
@@ -70,13 +78,17 @@ def build_prompt(transcript: Transcript, turn_idx: int) -> tuple[str, str]:
 
 
 def observe_turn(
-    transcript: Transcript, turn_idx: int, config: Config, telemetry: Telemetry | None = None
+    transcript: Transcript,
+    turn_idx: int,
+    config: Config,
+    telemetry: Telemetry | None = None,
+    role: ModelRole = OBSERVER,
 ) -> list[RawObservation]:
     telemetry = telemetry if telemetry is not None else Telemetry()
     system, user = build_prompt(transcript, turn_idx)
     response = complete_json(
         Request(
-            role=OBSERVER,
+            role=role,
             system=system,
             user=user,
             schema_name="observations",
@@ -84,15 +96,31 @@ def observe_turn(
         ),
         config,
     )
-    output = ObserverOutput.model_validate(response)
+    # The envelope must hold; a reply that is not {"observations": [...]} is a
+    # provider failure, not a labelling error. Each observation is then checked
+    # on its own, so one malformed item costs that item rather than the turn.
+    if isinstance(response, list):
+        telemetry.envelope_broken += 1
+        items = response
+    else:
+        items = response.get("observations") if isinstance(response, dict) else None
+    if not isinstance(items, list):
+        raise ValueError(f"observer returned observations={items!r}")
     telemetry.turns_observed += 1
-    telemetry.emitted += len(output.observations)
-    if not output.observations:
+    telemetry.emitted += len(items)
+    if not items:
         telemetry.turns_empty += 1
+
+    parsed: list[RawObservation] = []
+    for item in items:
+        try:
+            parsed.append(RawObservation.model_validate(item))
+        except ValidationError:
+            telemetry.dropped_malformed += 1
 
     valid = valid_indicator_ids()
     kept: list[RawObservation] = []
-    for observation in output.observations:
+    for observation in parsed:
         if observation.indicator_id not in valid:
             telemetry.dropped_unknown_indicator += 1
             telemetry.unknown_ids.append(observation.indicator_id)

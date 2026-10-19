@@ -19,6 +19,7 @@ import pytest
 
 from probe.config import replay_only
 from probe.inventory.indicators import INDICATORS_BY_ID
+from probe.models import GIGACHAT_OBSERVER
 from probe.run import run_transcript
 from probe.score.aggregate import Thresholds
 from probe.score.session import score_session
@@ -191,6 +192,26 @@ def test_the_headline_contrast_survives_a_real_observer(observed):
         assert max(values.values()) < 0.5, f"{label} reads as capable"
         for construct, value in values.items():
             assert strong[construct] > value, f"{label} beat strong on {construct}"
+
+
+@pytest.fixture(scope="module")
+def observed_gigachat():
+    """The same personas tagged by GigaChat-2-Max (2026-10-19), judged by the same
+    DeepSeek judge, replayed from fixtures/cassettes."""
+    results = {}
+    for path in sorted(glob.glob(str(PERSONAS / "*.json"))):
+        with repo.connect() as connection:
+            run = run_transcript(
+                load(path), replay_only(), connection, observer_role=GIGACHAT_OBSERVER
+            )
+        results[Path(path).stem] = run
+    return results
+
+
+def test_the_headline_contrast_survives_a_second_model_family(observed_gigachat):
+    test_the_headline_contrast_survives_a_real_observer(observed_gigachat)
+    for label, run in observed_gigachat.items():
+        assert run.telemetry.dropped_unknown_indicator == 0, label
 
 
 def test_parroting_is_still_caught_when_a_model_does_the_tagging(observed):

@@ -65,7 +65,7 @@ def complete_json(
 ) -> dict[str, Any]:
     path = cassette_path(request, cassette_dir or config.cassette_dir)
 
-    if config.mode == "replay":
+    if config.mode == "replay" or (config.reuse_recorded and path.exists()):
         if not path.exists():
             raise CassetteMissing(
                 f"no cassette for {request.role.name} at {path.name}.\n"
@@ -98,9 +98,10 @@ def complete_json(
     return response
 
 
-def deepseek_system(request: Request) -> str:
-    """DeepSeek offers JSON mode but not strict json_schema, so the contract goes
-    into the instruction instead. Nothing is lost for the instrument: the answer
+def schema_in_system(request: Request) -> str:
+    """DeepSeek offers JSON mode but not strict json_schema, and GigaChat's
+    json_schema is a beta that answered the observer schema with a 500, so the
+    contract goes into the instruction instead. Nothing is lost for the instrument: the answer
     is validated after the fact either way, which is what counts invented ids."""
     schema = json.dumps(request.schema, ensure_ascii=False, indent=2)
     return (
@@ -112,12 +113,15 @@ def deepseek_system(request: Request) -> str:
 def _call_provider(request: Request, config: Config) -> tuple[dict[str, Any], str, str]:
     """Returns the parsed answer, the model that actually served it, and the
     system text actually sent — both differ from the request on some providers."""
+    provider = request.role.provider
+    if provider == "gigachat":
+        return _call_gigachat(request, config)
+
     from openai import OpenAI
 
-    provider = request.role.provider
     if provider == "deepseek":
         client = OpenAI(base_url=DEEPSEEK_BASE_URL, api_key=config.require_key(provider))
-        system = deepseek_system(request)
+        system = schema_in_system(request)
         response_format: dict[str, Any] = {"type": "json_object"}
     else:
         client = OpenAI(
@@ -155,4 +159,56 @@ def _call_provider(request: Request, config: Config) -> tuple[dict[str, Any], st
     except json.JSONDecodeError as exc:
         # Structured output was requested; malformed JSON is a provider problem
         # worth surfacing, not something to repair by guessing.
+        raise RuntimeError(f"{request.role.name} returned non-JSON: {content[:200]}") from exc
+
+
+GIGACHAT_TIMEOUT = 300
+"""Seconds. A single observer turn took about two minutes on 2026-10-19."""
+
+GIGACHAT_SERVER_RETRIES = (15, 60, 180)
+"""Pauses in seconds before each retry after a 5xx or a network error. On 2026-10-19
+the API returned 500 on a fraction of identical requests, let one hang past the
+timeout and dropped one TLS connection. The request is unchanged on a retry, so
+retrying cannot alter what is measured."""
+
+
+def _call_gigachat(request: Request, config: Config) -> tuple[dict[str, Any], str, str]:
+    """Through the official SDK, which refreshes the 30-minute token itself."""
+    import time
+
+    import httpx
+    from gigachat import GigaChat
+    from gigachat.exceptions import ServerError
+    from gigachat.models import Chat, Messages, MessagesRole
+
+    system = schema_in_system(request)
+    chat = Chat(
+        model=request.role.model,
+        temperature=request.role.temperature,
+        messages=[
+            Messages(role=MessagesRole.SYSTEM, content=system),
+            Messages(role=MessagesRole.USER, content=request.user),
+        ],
+    )
+    with GigaChat(
+        credentials=config.require_key("gigachat"),
+        scope="GIGACHAT_API_PERS",
+        ca_bundle_file=config.gigachat_ca_bundle,
+        timeout=GIGACHAT_TIMEOUT,
+    ) as client:
+        for _ in range(EMPTY_RETRIES + 1):
+            for pause in (*GIGACHAT_SERVER_RETRIES, None):
+                try:
+                    completion = client.chat(chat)
+                    break
+                except (ServerError, httpx.TransportError):
+                    if pause is None:
+                        raise
+                    time.sleep(pause)
+            content = completion.choices[0].message.content or ""
+            if content.strip():
+                break
+    try:
+        return json.loads(content), completion.model, system
+    except json.JSONDecodeError as exc:
         raise RuntimeError(f"{request.role.name} returned non-JSON: {content[:200]}") from exc

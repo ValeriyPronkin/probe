@@ -83,6 +83,30 @@ def test_a_bad_task_link_drops_the_link_not_the_evidence(monkeypatch):
     assert telemetry.dropped_unknown_task == 1
 
 
+def test_a_malformed_observation_costs_itself_not_the_turn(monkeypatch):
+    """GigaChat, 2026-10-19: strength "medium". Not coerced to a valid value."""
+    medium = {**observation("kn.gap"), "strength": "medium"}
+    monkeypatch.setattr(
+        observer_module, "complete_json", respond_with([medium, observation("kn.gap")])
+    )
+    telemetry = Telemetry()
+    kept = observe_turn(transcript(), 1, replay_only(), telemetry)
+    assert [o.strength for o in kept] == ["strong"]
+    assert telemetry.dropped_malformed == 1
+    assert telemetry.emitted == 2
+
+
+def test_a_bare_list_is_read_but_counted(monkeypatch):
+    """GigaChat, 2026-10-19: `[]` instead of {"observations": []}."""
+    monkeypatch.setattr(
+        observer_module, "complete_json", lambda request, config, cassette_dir=None: []
+    )
+    telemetry = Telemetry()
+    assert observe_turn(transcript(), 1, replay_only(), telemetry) == []
+    assert telemetry.envelope_broken == 1
+    assert telemetry.turns_empty == 1
+
+
 def test_an_empty_answer_is_a_valid_answer(monkeypatch):
     monkeypatch.setattr(observer_module, "complete_json", respond_with([]))
     telemetry = Telemetry()

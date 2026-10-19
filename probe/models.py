@@ -29,7 +29,7 @@ class ModelRole:
     name: str
     model: str
     provider: str = "openrouter"
-    """'openrouter' or 'deepseek'. Part of the cassette key: the same model id
+    """'openrouter', 'deepseek' or 'gigachat'. Part of the cassette key: the same model id
     behind two providers is not guaranteed to be the same model."""
     family: str = ""
     """Who trained it. Rule 1 is about this, not about the model id."""
@@ -45,6 +45,17 @@ OBSERVER = ModelRole(
     name="observer", model="deepseek-flash", provider="deepseek", family="deepseek"
 )
 
+# The comparison observer (2026-10-19): the same prompt and inventory, a model
+# from another family. It runs only when asked for (scripts/compare_observers.py);
+# OBSERVER stays the default, so every recorded session keeps replaying.
+# GigaChat-2-Max is a floating id too: it served 2.0.28.2 and 2.0.30.01 on the
+# same day, so the served version is recorded per response.
+GIGACHAT_OBSERVER = ModelRole(
+    name="observer", model="GigaChat-2-Max", provider="gigachat", family="sber"
+)
+
+OBSERVERS = {"deepseek": OBSERVER, "gigachat": GIGACHAT_OBSERVER}
+
 # A known breach of rule 1, accepted for the demo prototype: a different and
 # stronger model, but the same family, because only a DeepSeek key is at hand.
 # The report says so on every run. The intended judge is one line away:
@@ -54,8 +65,8 @@ ADJUDICATOR = ModelRole(
 )
 
 
-def judge_shares_observer_family() -> bool:
-    return ADJUDICATOR.family == OBSERVER.family
+def judge_shares_observer_family(observer: ModelRole = OBSERVER) -> bool:
+    return ADJUDICATOR.family == observer.family
 
 # The scenario's conversational surface. Narrow by construction: it presents a
 # scripted state machine's current step and never evaluates anything.

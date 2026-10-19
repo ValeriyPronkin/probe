@@ -20,6 +20,7 @@ from typing import Literal
 
 from probe.admit.pipeline import Reviewed, review_turn
 from probe.config import Config
+from probe.models import ModelRole
 from probe.observe.observer import Telemetry, observe_turn
 from probe.observe.schema import RawObservation
 from probe.report.build import Report, build_report
@@ -69,9 +70,14 @@ def run_transcript(
     *,
     observer: ObserverSource = "model",
     adjudicator: bool = True,
+    observer_role: ModelRole | None = None,
 ) -> Run:
+    """`observer_role` picks the model behind observer="model"; the default is
+    models.OBSERVER, the one every recorded session was made with."""
     session_id = str(uuid.uuid4())
     from probe.models import ADJUDICATOR, OBSERVER, PROMPT_VERSION, judge_shares_observer_family
+
+    role = observer_role or OBSERVER
 
     repo.create_session(
         connection,
@@ -80,7 +86,7 @@ def run_transcript(
             participant_label=transcript.label,
             source=transcript.source,
             scenario_id=transcript.scenario_id,
-            observer_model=OBSERVER.model if observer == "model" else "gold-labels",
+            observer_model=role.model if observer == "model" else "gold-labels",
             judge_model=ADJUDICATOR.model if adjudicator else "none",
             prompt_version=PROMPT_VERSION,
         ),
@@ -96,7 +102,7 @@ def run_transcript(
     reviewed: list[Reviewed] = []
     for turn in transcript.participant_turns():
         if observer == "model":
-            raw = observe_turn(transcript, turn.idx, config, telemetry)
+            raw = observe_turn(transcript, turn.idx, config, telemetry, role)
         else:
             raw = gold.get(turn.idx, [])
         if not raw:
@@ -110,7 +116,7 @@ def run_transcript(
             connection,
             session_id,
             item.observation,
-            observer_model=OBSERVER.model if observer == "model" else "gold-labels",
+            observer_model=role.model if observer == "model" else "gold-labels",
             prompt_version=PROMPT_VERSION,
             verdicts=item.verdicts,
         )
@@ -125,10 +131,10 @@ def run_transcript(
         )
     if not adjudicator:
         report.notes_ru.append("Второй судья отключён — проверка допустимости неполна.")
-    elif observer == "model" and judge_shares_observer_family():
+    elif observer == "model" and judge_shares_observer_family(role):
         report.notes_ru.append(
             f"Судья ({ADJUDICATOR.model}) — того же семейства, что и наблюдатель "
-            f"({OBSERVER.model}): он отсекает часть ошибок разметки, но его согласие с "
+            f"({role.model}): он отсекает часть ошибок разметки, но его согласие с "
             "наблюдателем не является независимой проверкой."
         )
 
